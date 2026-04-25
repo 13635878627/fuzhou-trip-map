@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>福州行程专属地图</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;touch-action:manipulation}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:#f0f2f5;color:#333}
+
+/* 顶部 */
+.navbar{background:linear-gradient(135deg,#1a1a2e,#16213e);padding:12px 16px;display:flex;align-items:center;gap:12px;z-index:20;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.navbar h1{font-size:15px;font-weight:600;color:#fff;flex:1}
+.navbar .badge{background:#e94560;color:#fff;border-radius:12px;padding:3px 10px;font-size:11px}
+
+/* 模式切换 */
+.tabs{display:flex;background:#fff;border-bottom:1px solid #eee}
+.tab{flex:1;padding:10px;text-align:center;font-size:12px;color:#666;cursor:pointer;border-bottom:2px solid transparent}
+.tab.active{color:#e94560;border-bottom-color:#e94560;font-weight:600}
+
+/* 主区 */
+.main{flex:1;position:relative;overflow:hidden;min-height:0}
+#map{position:absolute;inset:0;width:100%;height:100%}
+
+/* 右侧面板 */
+#sidePanel{position:absolute;top:0;right:0;bottom:0;width:300px;background:#fff;box-shadow:-2px 0 10px rgba(0,0,0,.1);display:flex;flex-direction:column;z-index:30;transform:translateX(100%);transition:transform .3s}
+#sidePanel.open{transform:translateX(0)}
+.panel-header{padding:12px 16px;background:#f8f8f8;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center}
+.panel-body{flex:1;overflow-y:auto}
+
+/* 地点项 */
+.poi-item{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #f5f5f5;cursor:pointer;transition:background .1s}
+.poi-item:hover{background:#f8f8f8}
+.poi-item:active{background:#eee}
+.poi-dot{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.poi-info{flex:1;min-width:0}
+.poi-name{font-size:13px;font-weight:500;color:#222;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.poi-desc{font-size:11px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.poi-arrow{color:#ccc;font-size:14px}
+
+/* 底部导航栏 */
+.nav-bar{position:absolute;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #eee;padding:8px 16px;padding-bottom:calc(8px + env(safe-area-inset-bottom));display:flex;gap:10px;z-index:25}
+.nav-btn{flex:1;padding:10px;border-radius:8px;border:none;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px}
+.nav-btn.primary{background:#e94560;color:#fff}
+.nav-btn.secondary{background:#f5f5f5;color:#333}
+
+/* 切换按钮 */
+#togglePanel{position:absolute;top:50%;right:0;transform:translateY(-50%);background:#fff;border:none;border-radius:8px 0 0 8px;padding:20px 6px;cursor:pointer;box-shadow:-2px 0 8px rgba(0,0,0,.1);z-index:25;font-size:14px}
+
+/* 信息窗口 */
+.info-box{background:#fff;border-radius:12px;overflow:hidden;max-width:280px;box-shadow:0 4px 16px rgba(0,0,0,.15)}
+.info-hdr{background:linear-gradient(135deg,#1a1a2e,#16213e);padding:10px 14px;display:flex;align-items:center;gap:8px;color:#fff;font-size:14px;font-weight:600}
+.info-body{padding:12px 14px}
+.info-name{font-size:14px;font-weight:600;color:#222;margin-bottom:6px}
+.info-desc{font-size:12px;color:#666;line-height:1.5;margin-bottom:12px}
+.info-btns{display:flex;gap:8px}
+.info-btns a{display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:8px 14px;border-radius:6px;font-size:13px;text-decoration:none;font-weight:500;flex:1}
+.btn-nav{background:#e94560;color:#fff}
+.btn-walk{background:#f5f5f5;color:#333}
+
+/* 行程列表 */
+.route-num{width:20px;height:20px;background:#e94560;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;flex-shrink:0}
+.route-item{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #f5f5f5;cursor:pointer}
+.route-item:hover{background:#f8f8f8}
+.route-line{width:2px;height:30px;background:#e94560;margin-left:9px}
+.route-line.end{background:transparent}
+
+/* 提示 */
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.8);color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;z-index:200;opacity:0;transition:opacity .3s}
+.toast.show{opacity:1}
+
+/* PC */
+@media(min-width:768px){
+  #sidePanel{transform:none}
+  #togglePanel{display:none}
+  .nav-bar{left:300px}
+}
+</style>
+</head>
+<body>
+
+<!-- 导航栏 -->
+<div class="navbar">
+  <h1>🗺️ 福州行程专属地图<br><span style="font-size:11px;font-weight:400;opacity:.6">数字中国峰会 · 4月28-30日</span></h1>
+  <span class="badge">第9届</span>
+</div>
+
+<!-- 模式切换 -->
+<div class="tabs">
+  <div class="tab active" data-mode="all">📍 全部</div>
+  <div class="tab" data-mode="route">🛣️ 行程</div>
+  <div class="tab" data-mode="fav">⭐ 收藏</div>
+</div>
+
+<!-- 主区域 -->
+<div class="main">
+  <div id="map"></div>
+
+  <!-- 右侧面板 -->
+  <div id="sidePanel">
+    <div class="panel-header">
+      <span id="panelTitle">全部地点</span>
+      <span id="panelCount" style="background:#fce4ec;color:#e94560;padding:2px 8px;border-radius:8px;font-size:11px">0个</span>
+    </div>
+    <div class="panel-body" id="panelBody"></div>
+  </div>
+
+  <button id="togglePanel">◀</button>
+
+  <!-- 底部导航 -->
+  <div class="nav-bar">
+    <button class="nav-btn secondary" id="shareBtn">📤 分享地图</button>
+    <button class="nav-btn primary" id="startNavBtn" disabled>🧭 开始导航</button>
+  </div>
+</div>
+
+<!-- 提示 -->
+<div class="toast" id="toast"></div>
+
+<!-- 高德地图 -->
+<script>
+window._AMapSecurityConfig = {
+  securityJsCode: 'bcf2bacb9871818a60ed055664af6be1',
+};
+var amapScript = document.createElement('script');
+amapScript.src = 'https://webapi.amap.com/maps?v=2.0&key=c434415e872b7ce8249a4acae5dd8106&plugin=AMap.Geocoder,AMap.InfoWindow,AMap.ToolBar';
+amapScript.async = false;
+document.head.appendChild(amapScript);
+</script>
+
+<script>
+// ============================================================
+//  地点数据
+// ============================================================
+var POIS = [
+  {id:'h1', name:'速8精选酒店(三角埕地铁站店)', type:'hotel', icon:'🏨', desc:'地铁1号线三角埕站C出口'},
+  {id:'d0_d1', name:'国惠大酒楼(火车南站店)', type:'dinner', icon:'🍽️', desc:'商务接待 · 评分4.6'},
+  {id:'d0_d2', name:'城门风味大排档', type:'dinner', icon:'🍽️', desc:'本地20年老牌 · 人均80-110元'},
+  {id:'d0_d3', name:'悦城大酒店(海西佰悦城店)', type:'dinner', icon:'🍽️', desc:'距会展6分钟 · 评分4.5'},
+  {id:'d0_s1', name:'闽江公园南园', type:'sight', icon:'🗺️', desc:'福州滨江名片 · 夜晚灯光绝美'},
+  {id:'d0_s2', name:'福州海峡文化艺术中心', type:'sight', icon:'🗺️', desc:'福州新地标茉莉花 · 免费'},
+  {id:'d1_b1', name:'老福州锅边糊店', type:'breakfast', icon:'🍳', desc:'现煮海鲜锅边糊'},
+  {id:'d1_b2', name:'尚干依心拌面扁肉', type:'breakfast', icon:'🍳', desc:'非遗老字号 · 人均10-20元'},
+  {id:'d1_b3', name:'老字号花生汤店', type:'breakfast', icon:'🍳', desc:'百年甜口早餐 · 花生汤+芋泥'},
+  {id:'d1_l1', name:'海峡会展中心-闽江厅', type:'lunch', icon:'🍜', desc:'会展官方配套 · 团餐可定制'},
+  {id:'d1_l2', name:'林浦私房菜', type:'lunch', icon:'🍜', desc:'评分4.6 · 人均62元'},
+  {id:'d1_d1', name:'宣和一味(融侨中心店)', type:'dinner', icon:'🍽️', desc:'新派创意闽菜 · 评分4.6'},
+  {id:'d1_d2', name:'世纪金源会展大饭店', type:'dinner', icon:'🍽️', desc:'五星酒店配套 · 独立包厢'},
+  {id:'d1_d3', name:'老福州徐记(城门镇店)', type:'dinner', icon:'🍽️', desc:'本地老字号 · 人均90-120元'},
+  {id:'d1_s1', name:'三坊七巷', type:'sight', icon:'🗺️', desc:'5A景区 · 福州TOP1名片'},
+  {id:'d1_s2', name:'上下杭历史文化街区', type:'sight', icon:'🗺️', desc:'闽商发源地 · 夜晚灯光绝美'},
+  {id:'d1_s3', name:'烟台山历史风貌区', type:'sight', icon:'🗺️', desc:'万国建筑博物馆 · 免费'},
+  {id:'d2_b1', name:'福记锅边糊', type:'breakfast', icon:'🍳', desc:'现煮海鲜锅边糊 · 5分钟打包'},
+  {id:'d2_b2', name:'淳百味(三角埕店)', type:'breakfast', icon:'🍳', desc:'福州连锁小吃头部品牌'},
+  {id:'d2_l1', name:'榕发会展假日酒店', type:'lunch', icon:'🍜', desc:'会议酒店同楼 · 最稳妥'},
+  {id:'d2_l2', name:'聚春园(福州站店)', type:'lunch', icon:'🍜', desc:'老字号进火车站 · 人均50-90元'},
+  {id:'d2_s1', name:'数字中国峰会展区', type:'sight', icon:'🗺️', desc:'峰会核心展区'},
+  {id:'d2_s2', name:'西湖公园', type:'sight', icon:'🗺️', desc:'1700年历史古典园林'},
+  {id:'d2_s3', name:'华林寺', type:'sight', icon:'🗺️', desc:'长江以南最古老木构建筑'},
+  {id:'fav1', name:'林浦街家常菜', type:'fav', icon:'⭐', desc:'本地人食堂 · 人均40-60元'},
+  {id:'fav4', name:'天然居-漳港海鲜', type:'fav', icon:'⭐', desc:'漳港海鲜品牌连锁'},
+  {id:'fav5', name:'林依嫩猪血化', type:'fav', icon:'⭐', desc:'福州猪血化老字号'},
+  {id:'fav6', name:'依土捞化(庆城路店)', type:'fav', icon:'⭐', desc:'庆城路老味道捞化'},
+  {id:'fav8', name:'文儒九号-闾菜馆', type:'fav', icon:'⭐', desc:'三坊七巷高端闽菜'},
+  {id:'fav9', name:'聚春园大酒店(东街口店)', type:'fav', icon:'⭐', desc:'福州百年老字号'},
+  {id:'fav10', name:'同利肉燕老铺', type:'fav', icon:'⭐', desc:'始创1876年 · 非遗肉燕'},
+  {id:'fav11', name:'后街捞化', type:'fav', icon:'⭐', desc:'通湖路人气捞化'},
+  {id:'fav12', name:'尚干牛肉店(六一中路店)', type:'fav', icon:'⭐', desc:'尚干牛肉品牌连锁'},
+];
+
+// 默认行程顺序
+var DEFAULT_ROUTE = ['h1','d0_d1','d0_s1','d0_s2','d1_b1','d1_l1','d1_d1','d1_s1','d1_s2','d1_s3','d2_b1','d2_l1','d2_s1','d2_s2','d2_s3'];
+
+// 类型配置
+var TYPES = {
+  hotel:{color:'#e94560'},
+  breakfast:{color:'#27ae60'},
+  lunch:{color:'#f39c12'},
+  dinner:{color:'#e74c3c'},
+  sight:{color:'#2980b9'},
+  fav:{color:'#8e44ad'},
+};
+
+// 估算坐标
+var COORDS = {
+  h1:{lng:119.3730,lat:25.9730},
+  d0_d1:{lng:119.3721,lat:25.9870},d0_d2:{lng:119.3708,lat:25.9718},d0_d3:{lng:119.3850,lat:25.9700},
+  d0_s1:{lng:119.3862,lat:25.9662},d0_s2:{lng:119.3940,lat:25.9610},
+  d1_b1:{lng:119.3705,lat:25.9720},d1_b2:{lng:119.3708,lat:25.9715},d1_b3:{lng:119.3702,lat:25.9725},
+  d1_l1:{lng:119.4075,lat:25.9590},d1_l2:{lng:119.3930,lat:25.9810},
+  d1_d1:{lng:119.3860,lat:25.9540},d1_d2:{lng:119.4080,lat:25.9660},d1_d3:{lng:119.3718,lat:25.9820},
+  d1_s1:{lng:119.3048,lat:26.0907},d1_s2:{lng:119.3120,lat:26.0620},d1_s3:{lng:119.3228,lat:26.0382},
+  d2_b1:{lng:119.3708,lat:25.9718},d2_b2:{lng:119.3708,lat:25.9716},
+  d2_l1:{lng:119.4100,lat:25.9580},d2_l2:{lng:119.2918,lat:26.0830},
+  d2_s1:{lng:119.4075,lat:25.9590},d2_s2:{lng:119.2936,lat:26.0901},d2_s3:{lng:119.3120,lat:26.0841},
+  fav1:{lng:119.3940,lat:25.9830},fav4:{lng:119.3180,lat:26.0550},fav5:{lng:119.3170,lat:26.0600},
+  fav6:{lng:119.3050,lat:26.0890},fav8:{lng:119.3050,lat:26.0910},fav9:{lng:119.2968,lat:26.0870},
+  fav10:{lng:119.3045,lat:26.0907},fav11:{lng:119.3070,lat:26.0895},fav12:{lng:119.3080,lat:26.0760},
+};
+
+// 全局变量
+var mapObj, infoWin, geocoder;
+var allMarkers = {};
+var currentMode = 'all';
+var routePois = DEFAULT_ROUTE.map(function(id) { return POIS.find(function(p) { return p.id === id; }); }).filter(Boolean);
+
+// ============================================================
+//  工具函数
+// ============================================================
+function getCoord(poi) {
+  return COORDS[poi.id] || null;
+}
+
+function showToast(msg) {
+  var toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(function() { toast.classList.remove('show'); }, 2000);
+}
+
+// ============================================================
+//  等待AMap
+// ============================================================
+function waitAMap(cb, retry) {
+  if (retry === undefined) retry = 0;
+  if (retry > 60) { alert('地图加载失败'); return; }
+  if (window.AMap && window.AMap.Map) {
+    cb(window.AMap);
+  } else {
+    setTimeout(function() { waitAMap(cb, retry + 1); }, 100);
+  }
+}
+
+// ============================================================
+//  创建标记
+// ============================================================
+function createMarker(AMap, poi, inRoute, routeIndex) {
+  var coord = getCoord(poi);
+  if (!coord) return null;
+  
+  var color = TYPES[poi.type] ? TYPES[poi.type].color : '#607d8b';
+  
+  // 行程中的点用红色标记，带序号
+  var labelContent;
+  if (inRoute && routeIndex !== undefined) {
+    labelContent = '<div style="background:#e94560;color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3)">' + (routeIndex + 1) + '</div>';
+  } else {
+    labelContent = '<div style="background:' + color + ';color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:13px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.25)">' + poi.icon + '</div>';
+  }
+  
+  var mk = new AMap.Marker({
+    position: [coord.lng, coord.lat],
+    title: poi.name,
+    label: {
+      content: labelContent,
+      direction: 'top',
+      offset: new AMap.Pixel(-14, -28),
+    },
+    extData: poi,
+  });
+  
+  mk.on('click', function() { openPoi(poi); });
+  allMarkers[poi.id] = mk;
+  return mk;
+}
+
+// ============================================================
+//  打开POI详情
+// ============================================================
+function openPoi(poi) {
+  var coord = getCoord(poi);
+  if (!coord) return;
+  
+  var carUrl = 'https://uri.amap.com/navigation?to=' + coord.lng + ',' + coord.lat + ',' + encodeURIComponent(poi.name) + '&mode=car&callnative=1';
+  var walkUrl = 'https://uri.amap.com/navigation?to=' + coord.lng + ',' + coord.lat + ',' + encodeURIComponent(poi.name) + '&mode=walk&callnative=1';
+  
+  var inRoute = routePois.some(function(p) { return p && p.id === poi.id; });
+  var routeIndex = routePois.findIndex(function(p) { return p && p.id === poi.id; });
+  
+  var box = '<div class="info-box">' +
+    '<div class="info-hdr">' + poi.icon + ' ' + poi.name + '</div>' +
+    '<div class="info-body"><div class="info-name">' + poi.name + '</div>' +
+    '<div class="info-desc">' + poi.desc + (inRoute ? '<br>🛣️ 行程第' + (routeIndex + 1) + '站' : '') + '</div>' +
+    '<div class="info-btns"><a href="' + carUrl + '" class="btn-nav" target="_top">🚗 驾车</a><a href="' + walkUrl + '" class="btn-walk" target="_top">🚶 步行</a></div></div></div>';
+  
+  infoWin.setContent(box);
+  infoWin.open(mapObj, [coord.lng, coord.lat]);
+  mapObj.setCenter([coord.lng, coord.lat]);
+  mapObj.setZoom(16);
+}
+
+// ============================================================
+//  刷新地图
+// ============================================================
+function refreshMap() {
+  if (!mapObj) return;
+  mapObj.clearMap();
+  
+  var visiblePois = POIS.filter(function(p) {
+    if (currentMode === 'fav') return p.type === 'fav' || p.type === 'sight';
+    if (currentMode === 'route') return routePois.some(function(rp) { return rp && rp.id === p.id; });
+    return true;
+  });
+  
+  visiblePois.forEach(function(poi) {
+    var inRoute = routePois.some(function(rp) { return rp && rp.id === poi.id; });
+    var routeIndex = routePois.findIndex(function(rp) { return rp && rp.id === poi.id; });
+    var mk = createMarker(window.AMap, poi, inRoute, inRoute ? routeIndex : undefined);
+    if (mk) mapObj.add(mk);
+  });
+  
+  mapObj.setFitView();
+}
+
+// ============================================================
+//  渲染列表
+// ============================================================
+function renderList() {
+  var panelBody = document.getElementById('panelBody');
+  
+  var visiblePois = POIS.filter(function(p) {
+    if (currentMode === 'fav') return p.type === 'fav' || p.type === 'sight';
+    if (currentMode === 'route') return routePois.some(function(rp) { return rp && rp.id === p.id; });
+    return true;
+  });
+  
+  var title = currentMode === 'all' ? '全部地点' : currentMode === 'fav' ? '收藏景点' : '行程安排';
+  document.getElementById('panelTitle').textContent = title;
+  document.getElementById('panelCount').textContent = visiblePois.length + '个';
+  
+  if (visiblePois.length === 0) {
+    panelBody.innerHTML = '<div style="padding:40px;text-align:center;color:#999">暂无地点</div>';
+    return;
+  }
+  
+  // 行程模式显示序号
+  if (currentMode === 'route') {
+    var html = '';
+    routePois.forEach(function(poi, i) {
+      if (!poi) return;
+      var color = TYPES[poi.type] ? TYPES[poi.type].color : '#607d8b';
+      html += '<div class="route-item" onclick="openPoi(POIS.find(p=>p.id==\'' + poi.id + '\'))">' +
+        '<div class="route-num">' + (i + 1) + '</div>' +
+        '<div class="poi-dot" style="background:' + color + ';color:#fff">' + poi.icon + '</div>' +
+        '<div class="poi-info"><div class="poi-name">' + poi.name + '</div><div class="poi-desc">' + poi.desc + '</div></div>' +
+        '<span class="poi-arrow">›</span></div>';
+      if (i < routePois.length - 1) {
+        html += '<div class="route-line"></div>';
+      }
+    });
+    panelBody.innerHTML = html;
+    return;
+  }
+  
+  // 其他模式
+  var html = '';
+  visiblePois.forEach(function(poi) {
+    var color = TYPES[poi.type] ? TYPES[poi.type].color : '#607d8b';
+    html += '<div class="poi-item" onclick="openPoi(POIS.find(p=>p.id==\'' + poi.id + '\'))">' +
+      '<div class="poi-dot" style="background:' + color + ';color:#fff">' + poi.icon + '</div>' +
+      '<div class="poi-info"><div class="poi-name">' + poi.name + '</div><div class="poi-desc">' + poi.desc + '</div></div>' +
+      '<span class="poi-arrow">›</span></div>';
+  });
+  panelBody.innerHTML = html;
+}
+
+// ============================================================
+//  导航到第一个地点
+// ============================================================
+function startNavigation() {
+  if (routePois.length === 0) return;
+  var first = routePois[0];
+  if (!first) return;
+  var coord = getCoord(first);
+  if (!coord) return;
+  
+  var url = 'https://uri.amap.com/navigation?to=' + coord.lng + ',' + coord.lat + ',' + encodeURIComponent(first.name) + '&mode=car&callnative=1';
+  window.location.href = url;
+}
+
+// ============================================================
+//  生成分享URL
+// ============================================================
+function generateShareUrl() {
+  // 构建分享URL - 包含所有地点坐标
+  var baseUrl = window.location.origin + window.location.pathname;
+  var coords = routePois.map(function(p) {
+    if (!p) return null;
+    var c = getCoord(p);
+    return c ? c.lng + ',' + c.lat + ',' + encodeURIComponent(p.name) : null;
+  }).filter(Boolean).join('|');
+  
+  // 如果有真实坐标就用真实坐标
+  return baseUrl + '#route=' + coords;
+}
+
+// ============================================================
+//  事件绑定
+// ============================================================
+document.querySelectorAll('.tab').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+    this.classList.add('active');
+    currentMode = this.dataset.mode;
+    refreshMap();
+    renderList();
+  });
+});
+
+document.getElementById('togglePanel').addEventListener('click', function() {
+  document.getElementById('sidePanel').classList.toggle('open');
+  this.textContent = document.getElementById('sidePanel').classList.contains('open') ? '▶' : '◀';
+});
+
+document.getElementById('startNavBtn').addEventListener('click', startNavigation);
+document.getElementById('shareBtn').addEventListener('click', function() {
+  var url = generateShareUrl();
+  if (navigator.share) {
+    navigator.share({title: '福州行程专属地图', text: '数字中国峰会4月28-30日', url: url});
+  } else {
+    // 复制到剪贴板
+    navigator.clipboard.writeText(url).then(function() {
+      showToast('链接已复制，可发送给朋友或生成二维码');
+    }).catch(function() {
+      showToast('分享链接：' + url);
+    });
+  }
+});
+
+// ============================================================
+//  地图初始化
+// ============================================================
+waitAMap(function(AMap) {
+  mapObj = new AMap.Map('map', {
+    zoom: 12,
+    center: [119.3730, 25.9730],
+    viewMode: '2D',
+    mapStyle: 'amap://styles/normal',
+  });
+  mapObj.addControl(new AMap.ToolBar({position:'RB'}));
+  
+  infoWin = new AMap.InfoWindow({
+    offset: new AMap.Pixel(0, -30),
+    closeIconUrl: 'https://webapi.amap.com/theme/v1.3/close.gif',
+    autoMove: true,
+  });
+  
+  geocoder = new AMap.Geocoder({city: '福州', citylimit: true});
+  
+  refreshMap();
+  renderList();
+  
+  // 默认打开面板
+  document.getElementById('sidePanel').classList.add('open');
+  document.getElementById('togglePanel').textContent = '▶';
+});
+</script>
+</body>
+</html>
